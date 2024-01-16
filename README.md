@@ -45,24 +45,40 @@ interfaces:
 
 (3) data plane interfaces: RDMA signaled by default
 ```c
-  /* use RDMA WRITE WITH IMM as main send primitive */
-  size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len);
+    /* use RDMA WRITE WITH IMM as main send primitive */
+    size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len);
 
-  size_t rdmaConnSendWithImm(RdmaConn *conn, uint32_t imm_data,
-                             const void *data, size_t data_len);
+    size_t rdmaConnSendWithImm(RdmaConn *conn, uint32_t imm_data,
+                                const void *data, size_t data_len);
 
-  /* use RDMA WRITE to send data. Assume that data is a pre-registered RDMA MR */
-  size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len);
-  int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
-                           const void *data, size_t data_len);
+    /* use RDMA WRITE to send data. Assume that data is a pre-registered RDMA MR */
+    size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len);
+    int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
+                              const void *data, size_t data_len);
 
-  /* use RDMA READ to recv data. Assume that data buffer is a
-     pre-registered RDMA MR */
-  int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
+    /* use RDMA READ to recv data. Assume that data buffer is a
+        pre-registered RDMA MR */
+    int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
 
-  /* physical memory access interfaces */
-  int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
-  int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                         uint32_t lkey, uint64_t remote_addr, uint32_t length);
+    /* RDMA blocking interfaces that require RDMA_BLOCKING mode.
+     * Assume that remote addr is RDMA-registered before use.
+     */
+    int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                              uint32_t lkey, uint64_t remote_addr, 
+                              uint32_t rkey, uint32_t length);
+    int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                            uint32_t lkey, uint64_t remote_addr, 
+                            uint32_t rkey, uint32_t length);
+
+    /* RDMA physical memory access interfaces. */
+    int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                              uint32_t lkey, uint64_t remote_addr, uint32_t length);
+    int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                              uint32_t lkey, uint64_t remote_addr, uint32_t length);
+
+    /* RDMA blocking interfaces require RDMA_BLOCKING mode */
+    int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                              uint32_t lkey, uint64_t remote_addr, uint32_t length);
+    int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                              uint32_t lkey, uint64_t remote_addr, uint32_t length);
 ```
