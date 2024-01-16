@@ -10,6 +10,7 @@
 typedef enum RdmaCmdType
 {
     REG_LOCAL_ADDR, /* register local addr */
+    REG_PHYS_ADDR,  /* register physical mem */
 } RdmaCmdType;
 
 typedef struct RdmaCmd
@@ -194,8 +195,13 @@ typedef struct RdmaConn
     unsigned int recv_offset;
     struct ibv_mr *recv_mr;
 
-    /* Physical memory TX mr over RDMA */
+    /* Physical memory TX mr over RDMA. 
+     * Note that when register full physical memory, 
+     * the phys addr is NULL and the MR length is 0. */
     uint32_t tx_pa_rkey; /* remote key */
+    char *tx_pa_addr;    /* remote physical memory */
+    unsigned int tx_pa_length;
+    unsigned int tx_pa_offset;
 
     /* CMD 0 ~ RDMA_MAX_SGE for recv buffer
      * RDMA_MAX_SGE ~ 2 * RDMA_MAX_SGE - 1 for send buffer
@@ -242,11 +248,27 @@ int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
                          const void *data, size_t data_len);
 int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
 
-/* physical memory access interfaces */
+/* RDMA blocking interfaces that require RDMA_BLOCKING mode.
+ * Assume that remote addr is RDMA-registered before use.
+ */
 int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                          uint32_t lkey, uint64_t remote_addr, 
+                          uint32_t rkey, uint32_t length);
 int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                         uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                         uint32_t lkey, uint64_t remote_addr, 
+                         uint32_t rkey, uint32_t length);
+
+/* RDMA physical memory access interfaces. */
+int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+
+/* RDMA blocking interfaces require RDMA_BLOCKING mode */
+int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
 
 /* RDMA tracing and debug helpers */
 // #define NDEBUG 1

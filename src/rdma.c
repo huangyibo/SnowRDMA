@@ -56,6 +56,9 @@ struct rdma_context
     struct ibv_cq *cq;
     struct ibv_comp_channel *comp_channel;
 
+    /* RDMA-registered physical memory */
+    struct ibv_mr *phys_mr;
+
     pthread_t cq_poller_thread;
 };
 
@@ -86,6 +89,7 @@ static int rdmaOnDisconnected(struct rdma_cm_event *ev);
 static int rdmaOnRejected(struct rdma_cm_event *ev);
 
 static int connRdmaSyncRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id);
+static int connRdmaSyncPhysRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id);
 
 // static int rdmaRegSendbuf(RdmaConn *conn, unsigned int length);
 static int rdmaSendCommand(RdmaConn *conn, struct rdma_cm_id *id, RdmaCmd *cmd, void *tx_ctx);
@@ -367,6 +371,9 @@ int rdmaContextInit(struct ibv_context *verbs)
         return RDMA_OK;
     }
 
+    /* The ibv_fork_init() func initializes libibverbs'data structures to handle
+     * fork() func calls correctly and avoid data corruption.
+     */
     if (ibv_fork_init())
     {
         rdmaWarn("RDMA: FATAL error, ibv_fork_init failed");
@@ -382,6 +389,17 @@ int rdmaContextInit(struct ibv_context *verbs)
     {
         rdmaErr("RDMA: ibv alloc pd failed");
         goto err;
+    }
+
+    /* register RDMA-enabled physical memory when enabled */
+    if (rdmaEnablePhysAddrAccess)
+    {
+        g_ctx->phys_mr = rdma_exp_reg_phys_mem_full(g_ctx->pd);
+        if (!g_ctx->phys_mr)
+        {
+            rdmaErr("RDMA: ibv exp reg mr error");
+            goto err;
+        }
     }
 
     g_ctx->comp_channel = ibv_create_comp_channel(g_ctx->ctx);
@@ -475,6 +493,13 @@ int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
         }
         break;
 
+    case REG_PHYS_ADDR:
+        conn->tx_pa_addr = (char *)cmd->addr;
+        conn->tx_pa_length = ntohl(cmd->length);
+        conn->tx_pa_rkey = ntohl(cmd->key);
+        conn->tx_pa_offset = 0;
+        break;
+
     default:
         rdmaErr("RDMA: FATAL error, unknown RDMA cmd");
         return RDMA_ERR;
@@ -541,7 +566,7 @@ pollcq:
     {
         if (wc[i].status != IBV_WC_SUCCESS)
         {
-            rdmaWarn("RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
+            rdmaWarn("(Ignored) RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
                      ibv_wc_status_str(wc[i].status), wc[i].status, wc[i].opcode);
             goto out;
         }
@@ -608,13 +633,22 @@ void *rdmaCompChannelStart(void *ctx_ptr)
     assert(ctx);
     int flags = fcntl(ctx->comp_channel->fd, F_GETFL);
     int ret = fcntl(ctx->comp_channel->fd, F_SETFL, flags | O_NONBLOCK);
-    assert(ret == 0);
     int error_flags = POLLERR | POLLHUP | POLLNVAL;
     struct pollfd pfd = {
         .fd = ctx->comp_channel->fd,
         .events = POLLIN,
         .revents = 0};
     int num_events = 0;
+
+    if (ret != 0) {
+        rdmaErr("RDMA: fcntl rdma completion channel fd failed status: %s", strerror(errno));
+        return NULL;
+    }
+
+    if (ret != 0) {
+        rdmaErr("RDMA: fcntl rdma completion channel fd failed status: %s", strerror(errno));
+        return NULL;
+    }
 
     while (!atomic_load(&c_should_stop))
     {
@@ -727,6 +761,11 @@ void *rdmaCmChannelStart(void *ptr)
         .revents = 0};
     int num_events = 0;
 
+    if (ret != 0) {
+        rdmaErr("RDMA: fcntl rdma cm event channel fd failed status: %s", strerror(errno));
+        return NULL;
+    }
+
     while (!atomic_load(&g_should_stop))
     {
         num_events = poll(&pfd, 1, rdmaPollEventTimeoutms);
@@ -786,6 +825,7 @@ int rdmaServer(RdmaListener **listener, const char *ip,
         rdmaErr("RDMA: failed to alloc RdmaListener %d (%s)", errno, strerror(errno));
         goto err;
     }
+    memset(*listener, 0, sizeof(**listener));
 
     /* parse IP addr info */
     sprintf(_port, "%d", port);
@@ -973,6 +1013,7 @@ int rdmaOnConnectRequest(struct rdma_cm_event *ev)
     {
         goto err;
     }
+    memset(conn, 0, sizeof(*conn));
 
     conn->ip = strdup(cip);
     conn->port = cport;
@@ -1118,11 +1159,40 @@ int connRdmaSyncRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id)
     return rdmaSendCommand(conn, cm_id, cmd, tx_ctx);
 }
 
+int connRdmaSyncPhysRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id)
+{
+    RdmaCmd *cmd;
+    RdmaWrCtx *tx_ctx;
+
+    if (!rdmaEnablePhysAddrAccess || !g_ctx || !g_ctx->phys_mr)
+    {
+        rdmaDebug("You should enable Physical Memory Access over RDMA before use. \n"
+                 "Note that you need to enable RDMA Physical Address Memory Region"
+                 " (pa-mr) in MLNX_OFED driver.");
+        return RDMA_ERR;
+    }
+
+    cmd = rdmaAllocCmdBuf(conn, &tx_ctx);
+
+    cmd->addr = (uint64_t)g_ctx->phys_mr->addr;
+    cmd->length = htonl(g_ctx->phys_mr->length);
+    cmd->key = htonl(g_ctx->phys_mr->rkey);
+    cmd->cmd_opcode = REG_PHYS_ADDR;
+    cmd->magic = RDMA_CMD_MAGIC;
+
+    tx_ctx->type = SEND_CONTEXT;
+    tx_ctx->rdma_conn = (void *)conn;
+    tx_ctx->private_data = (void *)cmd;
+
+    return rdmaSendCommand(conn, cm_id, cmd, tx_ctx);
+}
+
 int rdmaOnConnected(struct rdma_cm_event *ev)
 {
     struct rdma_cm_id *id = ev->id;
     RdmaConn *conn = id->context;
 
+    connRdmaSyncPhysRxMr(conn, id);
     connRdmaSyncRxMr(conn, id);
     conn->state = CONN_STATE_CONNECTED;
 
@@ -1162,6 +1232,11 @@ int rdmaServerStart(RdmaListener *listener)
         .events = POLLIN,
         .revents = 0};
     int num_events = 0;
+
+    if (ret != 0) {
+        rdmaErr("RDMA: fcntl rdma cm event channel fd failed status: %s", strerror(errno));
+        return RDMA_ERR;
+    }
 
     while (!atomic_load(&g_should_stop))
     {
@@ -1257,6 +1332,7 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt)
         rdmaErr("RDMA: malloc RdmaConn failed %s", strerror(errno));
         return NULL;
     }
+    memset(conn, 0, sizeof(*conn));
 
     /* setup Rdma Server Options */
     rdmaSetDefaultOptions(&conn->options);
@@ -1495,7 +1571,8 @@ int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len)
 }
 
 int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length)
+                          uint32_t lkey, uint64_t remote_addr,
+                          uint32_t rkey, uint32_t length)
 {
     struct rdma_cm_id *id = conn->cm_id;
     struct ibv_wc wc = {0};
@@ -1507,7 +1584,7 @@ int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
     }
 
     ret = rdma_write_signaled(id->qp, htonl(0), local_addr,
-                              lkey, remote_addr, conn->tx_pa_rkey,
+                              lkey, remote_addr, rkey,
                               length, conn->max_inline_data);
     if (ret)
     {
@@ -1522,7 +1599,108 @@ int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
 }
 
 int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                         uint32_t lkey, uint64_t remote_addr, uint32_t length)
+                         uint32_t lkey, uint64_t remote_addr,
+                         uint32_t rkey, uint32_t length)
+{
+    struct rdma_cm_id *id = conn->cm_id;
+    struct ibv_wc wc = {0};
+    int ret;
+
+    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    {
+        return RDMA_ERR;
+    }
+
+    ret = rdma_read_signaled(id->qp, htonl(0), local_addr, lkey,
+                             remote_addr, rkey,
+                             length, conn->max_inline_data);
+    if (ret)
+    {
+        rdmaErr("RDMA: post send failed for RDMA READ : %s", strerror(errno));
+        return RDMA_ERR;
+    }
+
+    while (ibv_poll_cq(conn->cq, 1, &wc) == 0)
+        ;
+
+    return length;
+}
+
+int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length)
+{
+    struct rdma_cm_id *id = conn->cm_id;
+    int ret;
+
+    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    {
+        return RDMA_ERR;
+    }
+
+    ret = rdma_write_signaled(id->qp, htonl(0), local_addr, lkey,
+                             remote_addr, conn->tx_pa_rkey,
+                             length, conn->max_inline_data);
+    if (ret)
+    {
+        rdmaErr("RDMA: post send failed for RDMA Write : %s", strerror(errno));
+        return RDMA_ERR;
+    }
+
+    return length;
+}
+
+int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length)
+{
+    struct rdma_cm_id *id = conn->cm_id;
+    int ret;
+
+    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    {
+        return RDMA_ERR;
+    }
+
+    ret = rdma_read_signaled(id->qp, htonl(0), local_addr, lkey,
+                             remote_addr, conn->tx_pa_rkey,
+                             length, conn->max_inline_data);
+    if (ret)
+    {
+        rdmaErr("RDMA: post send failed for RDMA READ : %s", strerror(errno));
+        return RDMA_ERR;
+    }
+
+    return length;
+}
+
+int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length)
+{
+    struct rdma_cm_id *id = conn->cm_id;
+    struct ibv_wc wc = {0};
+    int ret;
+
+    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    {
+        return RDMA_ERR;
+    }
+
+    ret = rdma_write_signaled(id->qp, htonl(0), local_addr, lkey,
+                             remote_addr, conn->tx_pa_rkey,
+                             length, conn->max_inline_data);
+    if (ret)
+    {
+        rdmaErr("RDMA: post send failed for RDMA Write : %s", strerror(errno));
+        return RDMA_ERR;
+    }
+
+    while (ibv_poll_cq(conn->cq, 1, &wc) == 0)
+        ;
+
+    return length;
+}
+
+int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
+                          uint32_t lkey, uint64_t remote_addr, uint32_t length)
 {
     struct rdma_cm_id *id = conn->cm_id;
     struct ibv_wc wc = {0};
