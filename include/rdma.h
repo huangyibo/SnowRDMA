@@ -59,6 +59,76 @@ typedef enum
     RDMA_NON_BLOCKING,
 } RdmaCommMode;
 
+typedef struct RdmaOptions
+{
+
+    /* set the number of backlog for RDMA Listener when rdma_listen().
+     * Default: 128
+     */
+    int rdma_listen_backlog;
+
+    /** set timeout (ms) value for rdma_resolve_addr() and rdma_resolve_route().
+     * Default: 1000 ms
+     */
+    int rdma_timeoutms;
+
+    /** set the timeout (ms) value for poll() when polling RDMA cm event channel
+     * and completion event channel.
+     *  Default: 10 ms
+     */
+    int rdma_poll_event_timeoutms;
+
+    /** the max inline data size enabled by RNIC. 0 indicate no inline optimization.
+     * Default: 0
+     */
+    int rdma_max_inline_data;
+
+    /** set the retry times for rdma_connect() and rdma_listen().
+     * Default: 7
+     */
+    int rdma_retry_count;
+
+    /** set the maximum number of times that a send operation from the remote peer
+     * should be retried on a connection after receiving a receiver not ready (RNR)
+     * error. RNR errors are generated when a send request arrives before a buffer
+     * has been posted to receive the incoming data. Applies only to RDMA_PS_TCP.
+     * Default: 7
+     */
+    int rdma_rnr_retry_count;
+
+    /** set the maximum number of concurrent work requests for one ibv_poll_cq()
+     * invocation. This can be used to handle a batch of CQEs for a better
+     * throughput.
+     * Default: 128 + 2048 * 2
+     */
+    int rdma_max_concurrent_work_requests;
+
+    /** set the recv depth of RDMA recv buffers for ibv_post_recv() in two-sided
+     * messaging verbs.
+     * Default: 1024
+     */
+    int rdma_recv_depth;
+
+    /** set the mode of RDMA QP instances to CQ instance mapping relationship.
+     * Default: MANY_TO_ONE
+     */
+    RdmaQpCqMapping rdma_qp2cq_mode;
+
+    /** set the mode of RDMA communication: SYNC (Blocking), ASYNC (Non-Blocking)
+     * Default: RDMA_NON_BLOCKING
+     */
+    RdmaCommMode rdma_comm_mode;
+
+    /** set whehther enable Remote Direct Physical Memory Access (RDPMA).
+     * Default: false
+     */
+    bool rdma_enable_phys_addr_access;
+
+} RdmaOptions;
+
+typedef RdmaOptions RdmaServerOptions;
+typedef RdmaOptions RdmaConnOptions;
+
 typedef enum
 {
     CONN_STATE_NONE = 0,
@@ -137,24 +207,28 @@ typedef struct RdmaConn
 
     pthread_cond_t status_cond;
     pthread_mutex_t status_mutex;
+
+    RdmaConnOptions options;
 } RdmaConn;
 
 typedef struct RdmaListener
 {
     struct rdma_cm_id *cm_id;
     struct rdma_event_channel *cm_channel;
+    RdmaServerOptions options;
 } RdmaListener;
 
 /* common RDMA interfaces/handlers */
 
 /* RDMA server side interfaces */
-int rdmaServer(RdmaListener **listener, char *ip, int port);
+int rdmaServer(RdmaListener **listener, const char *ip,
+               const int port, const RdmaServerOptions *opt);
 int rdmaServerStart(RdmaListener *listener);
 int rdmaServerStop(RdmaListener *listener);
 void rdmaServerRelease(RdmaListener *listener);
 
 /* RDMA client side interfaces */
-RdmaConn *rdmaConn(void);
+RdmaConn *rdmaConn(const RdmaServerOptions *opt);
 int rdmaConnect(RdmaConn *conn, char *serverip, int port);
 void rdmaConnClose(RdmaConn *conn);
 
@@ -164,7 +238,8 @@ void rdmaRuntimeStop(void);
 size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len);
 /* size_t rdmaConnSendWithImm(RdmaConn *conn, uint32_t imm_data, const void *data, size_t data_len); */
 size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len);
-int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data, const void *data, size_t data_len);
+int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
+                         const void *data, size_t data_len);
 int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
 
 /* physical memory access interfaces */

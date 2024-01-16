@@ -7,9 +7,11 @@ int port = 8888;
 int main(int argc, char *argv[])
 {
     RdmaListener *server;
+    RdmaServerOptions opt = {0};
     int ret;
 
-    ret = rdmaServer(&server, serverip, port);
+    opt.rdma_recv_depth = 512;
+    ret = rdmaServer(&server, serverip, port, &opt);
     if (ret != RDMA_OK)
     {
         rdmaErr("create rdma server failed");

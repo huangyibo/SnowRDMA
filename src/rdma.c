@@ -95,16 +95,71 @@ static int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
                               RdmaCmd *cmd, RdmaWrCtx *wr_ctx, uint32_t byte_len);
 static int rdmaConnHandleSend(RdmaConn *conn, RdmaCmd *cmd);
 
-// static void logRdmaError(char *err, const char *fmt, ...)
-// {
-//     va_list ap;
+static inline void rdmaSetDefaultOptions(RdmaOptions *dst_opt)
+{
+    if (dst_opt)
+    {
+        dst_opt->rdma_listen_backlog = 128;
+        dst_opt->rdma_timeoutms = 1000;
+        dst_opt->rdma_poll_event_timeoutms = 10;
+        dst_opt->rdma_max_inline_data = 0;
+        dst_opt->rdma_retry_count = 7;
+        dst_opt->rdma_rnr_retry_count = 7;
+        dst_opt->rdma_max_concurrent_work_requests = 128 + 2048 * 2;
+        dst_opt->rdma_recv_depth = RDMA_MAX_SGE;
+        dst_opt->rdma_qp2cq_mode = MANY_TO_ONE;
+        dst_opt->rdma_comm_mode = RDMA_NON_BLOCKING;
+        dst_opt->rdma_enable_phys_addr_access = false;
+    }
+}
 
-//     if (!err)
-//         return;
-//     va_start(ap, fmt);
-//     vsnprintf(err, ANET_ERR_LEN, fmt, ap);
-//     va_end(ap);
-// }
+static inline void rdmaSetGlobalEnv(const RdmaOptions *opt)
+{
+    if (!opt)
+        return;
+
+    if (opt->rdma_poll_event_timeoutms > 0)
+    {
+        rdmaPollEventTimeoutms = opt->rdma_poll_event_timeoutms;
+    }
+
+    if (opt->rdma_max_inline_data > 0)
+    {
+        rdmaMaxInlineData = opt->rdma_max_inline_data;
+    }
+
+    if (opt->rdma_retry_count > 0)
+    {
+        rdmaRetryCount = opt->rdma_retry_count;
+    }
+
+    if (opt->rdma_rnr_retry_count)
+    {
+        rdmaRnrRetryCount = opt->rdma_rnr_retry_count;
+    }
+
+    if (opt->rdma_max_concurrent_work_requests > 0)
+    {
+        rdmaMaxConcurrentWorkRequests = opt->rdma_max_concurrent_work_requests;
+    }
+
+    if (opt->rdma_qp2cq_mode >= 0)
+    {
+        rdmaQp2CqMode = (opt->rdma_comm_mode == RDMA_BLOCKING) ? ONE_TO_ONE : opt->rdma_qp2cq_mode;
+    }
+
+    if (opt->rdma_comm_mode >= 0)
+    {
+        rdmaCommMode = opt->rdma_comm_mode;
+    }
+
+    if (opt->rdma_recv_depth > 0)
+    {
+        rdmaRecvDepth = opt->rdma_recv_depth;
+    }
+
+    rdmaEnablePhysAddrAccess = opt->rdma_enable_phys_addr_access;
+}
 
 /* To make RDMA apps forkable, buffer which is registered as RDMA
  * memory region should be aligned to page size. And the length
@@ -227,7 +282,7 @@ static int rdmaSetupIoBuf(RdmaConn *conn, struct rdma_cm_id *cm_id)
     conn->rx_ctx = page_aligned_alloc(length);
     conn->tx_ctx = page_aligned_alloc(length);
 
-    for (i = 0; i < RDMA_MAX_SGE; i++)
+    for (i = 0; i < rdmaRecvDepth; i++)
     {
         cmd = conn->cmd_buf + i;
         rx_ctx = conn->rx_ctx + i;
@@ -713,7 +768,8 @@ void *rdmaCmChannelStart(void *ptr)
 
 /* RDMA server side */
 
-int rdmaServer(RdmaListener **listener, char *ip, int port)
+int rdmaServer(RdmaListener **listener, const char *ip,
+               const int port, const RdmaServerOptions *opt)
 {
     struct addrinfo hints, *addrinfo;
     struct sockaddr_storage sock_addr;
@@ -756,6 +812,19 @@ int rdmaServer(RdmaListener **listener, char *ip, int port)
         goto err;
     }
 
+    /* setup Rdma Server Options */
+    rdmaSetDefaultOptions(&(*listener)->options);
+    if (opt)
+    {
+        // memcpy(&(*listener)->options, opt, sizeof(*opt));
+        if (opt->rdma_comm_mode == RDMA_BLOCKING)
+        {
+            (*listener)->options.rdma_qp2cq_mode = ONE_TO_ONE;
+            rdmaQp2CqMode = ONE_TO_ONE;
+        }
+        rdmaSetGlobalEnv(opt);
+    }
+
     memset(&sock_addr, 0, sizeof(sock_addr));
     if (addrinfo->ai_family == AF_INET6)
     {
@@ -788,7 +857,7 @@ int rdmaServer(RdmaListener **listener, char *ip, int port)
         goto err;
     }
 
-    ret = rdma_listen(listen_cmid, rdmaListenBacklog);
+    ret = rdma_listen(listen_cmid, (*listener)->options.rdma_listen_backlog);
     if (ret)
     {
         rdmaErr("RDMA: listen addr error %d", errno);
@@ -944,11 +1013,12 @@ err:
 int rdmaOnAddrResolved(struct rdma_cm_event *ev)
 {
     struct rdma_cm_id *id = ev->id;
+    RdmaConn *conn = id->context;
 
     /* resolve route at most 1000ms */
-    if (rdma_resolve_route(id, rdmaTimeoutms) != 0)
+    if (rdma_resolve_route(id, conn->options.rdma_timeoutms) != 0)
     {
-        rdmaErr("RDMA: resolve route failed with timeout %d ms", rdmaTimeoutms);
+        rdmaErr("RDMA: resolve route failed with timeout %d ms", conn->options.rdma_timeoutms);
         rdmaOnRejected(ev);
         return RDMA_ERR;
     }
@@ -990,7 +1060,7 @@ static RdmaCmd *rdmaAllocCmdBuf(RdmaConn *conn, RdmaWrCtx **tx_ctx)
     int i;
 
     /* find an unused cmd buffer */
-    for (i = RDMA_MAX_SGE; i < 2 * RDMA_MAX_SGE; i++)
+    for (i = rdmaRecvDepth; i < 2 * rdmaRecvDepth; i++)
     {
         _cmd = conn->cmd_buf + i;
         if (!_cmd->magic)
@@ -999,10 +1069,10 @@ static RdmaCmd *rdmaAllocCmdBuf(RdmaConn *conn, RdmaWrCtx **tx_ctx)
         }
     }
 
-    assert(i < 2 * RDMA_MAX_SGE);
+    assert(i < 2 * rdmaRecvDepth);
 
     /* find corresponding RdmaWrCtx */
-    _tx_ctx = conn->tx_ctx + i - RDMA_MAX_SGE;
+    _tx_ctx = conn->tx_ctx + i - rdmaRecvDepth;
     *tx_ctx = _tx_ctx;
 
     return _cmd;
@@ -1162,9 +1232,9 @@ void rdmaServerRelease(RdmaListener *listener)
     free(listener);
 }
 
-/* rdma client side */
+/** rdma client side */
 
-RdmaConn *rdmaConn(void)
+RdmaConn *rdmaConn(const RdmaServerOptions *opt)
 {
     RdmaConn *conn;
 
@@ -1186,6 +1256,25 @@ RdmaConn *rdmaConn(void)
     {
         rdmaErr("RDMA: malloc RdmaConn failed %s", strerror(errno));
         return NULL;
+    }
+
+    /* setup Rdma Server Options */
+    rdmaSetDefaultOptions(&conn->options);
+    if (opt)
+    {
+        if (opt->rdma_comm_mode == RDMA_BLOCKING)
+        {
+            conn->options.rdma_qp2cq_mode = ONE_TO_ONE;
+        }
+        if (opt->rdma_recv_depth > 0)
+        {
+            conn->options.rdma_recv_depth = opt->rdma_recv_depth;
+        }
+        if (opt->rdma_timeoutms > 0)
+        {
+            conn->options.rdma_timeoutms = opt->rdma_timeoutms;
+        }
+        rdmaSetGlobalEnv(opt);
     }
 
     conn->state = CONN_STATE_NONE;
@@ -1254,9 +1343,11 @@ int rdmaConnect(RdmaConn *conn, char *serverip, int port)
     conn->ip = strdup(serverip);
     conn->port = port;
     conn->state = CONN_STATE_CONNECTING;
-    if (rdma_resolve_addr(conn->cm_id, NULL, (struct sockaddr *)&saddr, rdmaTimeoutms))
+    if (rdma_resolve_addr(conn->cm_id, NULL,
+                          (struct sockaddr *)&saddr, rdmaTimeoutms))
     {
-        rdmaWarn("RDMA: cannot resolve addr %s:%d (error: %s)", serverip, port, strerror(errno));
+        rdmaWarn("RDMA: cannot resolve addr %s:%d (error: %s)",
+                 serverip, port, strerror(errno));
         goto out;
     }
 
@@ -1266,7 +1357,6 @@ int rdmaConnect(RdmaConn *conn, char *serverip, int port)
     pthread_mutex_unlock(&conn->status_mutex);
 
     ret = RDMA_OK;
-
 out:
     if (servinfo)
     {

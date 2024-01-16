@@ -10,9 +10,11 @@ char *hello_msg = "Hello World!";
 int main(int argc, char *argv[])
 {
     RdmaConn *conn;
+    RdmaConnOptions opt = {0};
     int ret = RDMA_ERR;
 
-    conn = rdmaConn();
+    opt.rdma_recv_depth = 32;
+    conn = rdmaConn(&opt);
     if (!conn)
     {
         rdmaErr("create rdma connection failed");
