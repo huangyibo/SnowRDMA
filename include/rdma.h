@@ -11,6 +11,8 @@ typedef struct RdmaConn RdmaConn;
 
 /* callback funcs for RDMA connection level in Async communication (Non-Blocking) */
 typedef void (*RdmaRecvCallbackFunc)(RdmaConn *conn, void *data, size_t data_len);
+typedef void (*RdmaConnectedCallbackFunc)(RdmaConn *conn);
+typedef void (*RdmaDisconnectCallbackFunc)(RdmaConn *conn);
 typedef void (*RdmaAcceptCallbackFunc)(RdmaConn *conn);
 
 typedef enum RdmaCmdType
@@ -132,6 +134,8 @@ typedef struct RdmaOptions
     bool rdma_enable_phys_addr_access;
 
     RdmaRecvCallbackFunc recv_callback;
+    RdmaConnectedCallbackFunc connected_callback;
+    RdmaDisconnectCallbackFunc disconnect_callback;
     RdmaAcceptCallbackFunc accept_callback;
 } RdmaOptions;
 
@@ -203,8 +207,8 @@ struct RdmaConn
     unsigned int recv_offset;
     struct ibv_mr *recv_mr;
 
-    /* Physical memory TX mr over RDMA. 
-     * Note that when register full physical memory, 
+    /* Physical memory TX mr over RDMA.
+     * Note that when register full physical memory,
      * the phys addr is NULL and the MR length is 0. */
     uint32_t tx_pa_rkey; /* remote key */
     char *tx_pa_addr;    /* remote physical memory */
@@ -226,6 +230,8 @@ struct RdmaConn
 
     /* callbacks for control and data plane */
     RdmaRecvCallbackFunc recv_callback;
+    RdmaConnectedCallbackFunc connected_callback;
+    RdmaDisconnectCallbackFunc disconnect_callback;
 };
 
 typedef struct RdmaListener
@@ -253,6 +259,8 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt);
 int rdmaConnect(RdmaConn *conn, char *serverip, int port);
 void rdmaConnClose(RdmaConn *conn);
 int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func);
+int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func);
+int rdmaConnSetDisconnectCallback(RdmaConn *conn, RdmaDisconnectCallbackFunc func);
 
 void rdmaRuntimeStop(void);
 
@@ -268,23 +276,23 @@ int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
  * Assume that remote addr is RDMA-registered before use.
  */
 int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, 
+                          uint32_t lkey, uint64_t remote_addr,
                           uint32_t rkey, uint32_t length);
 int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                         uint32_t lkey, uint64_t remote_addr, 
+                         uint32_t lkey, uint64_t remote_addr,
                          uint32_t rkey, uint32_t length);
 
 /* RDMA physical memory access interfaces. */
 int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                        uint32_t lkey, uint64_t remote_addr, uint32_t length);
 int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                       uint32_t lkey, uint64_t remote_addr, uint32_t length);
 
 /* RDMA blocking interfaces require RDMA_BLOCKING mode */
 int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                            uint32_t lkey, uint64_t remote_addr, uint32_t length);
 int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
-                          uint32_t lkey, uint64_t remote_addr, uint32_t length);
+                           uint32_t lkey, uint64_t remote_addr, uint32_t length);
 
 /* RDMA tracing and debug helpers */
 

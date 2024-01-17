@@ -9,7 +9,17 @@ char *hello_msg = "Hello World!";
 
 void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
 {
-    printf("RDMA: recv data from peer: %s\n", (char *)data);
+    printf("RDMA: recv data from peer (%s:%d): %s\n", conn->ip, conn->port, (char *)data);
+}
+
+void clientConnectSuccess(RdmaConn *conn)
+{
+    printf("RDMA: one connection (%s:%d) connect success to server\n", conn->ip, conn->port);
+}
+
+void clientDisconnectSuccess(RdmaConn *conn)
+{
+    printf("RDMA: one connection (%s:%d) disconnect success\n", conn->ip, conn->port);
 }
 
 int main(int argc, char *argv[])
@@ -20,6 +30,8 @@ int main(int argc, char *argv[])
 
     opt.rdma_recv_depth = 32;
     opt.recv_callback = clientRecvSuccess;
+    opt.connected_callback = clientConnectSuccess;
+    opt.disconnect_callback = clientDisconnectSuccess;
     conn = rdmaConn(&opt);
     if (!conn)
     {

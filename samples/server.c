@@ -10,11 +10,24 @@ void connRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
     rdmaConnSend(conn, data, data_len);
 }
 
+void connConnectSuccess(RdmaConn *conn)
+{
+    printf("RDMA: one connection (%s:%d) connect success to server\n", conn->ip, conn->port);
+}
+
+void connDisconnectSuccess(RdmaConn *conn)
+{
+    printf("RDMA: one connection (%s:%d) disconnect success\n", conn->ip, conn->port);
+}
+
 void serverAcceptSuccess(RdmaConn *conn)
 {
-    printf("RDMA: Accepted a new connection. Let's register recv callback here\n");
+    printf("RDMA: Accepted a new connection (%s:%d). \n"
+           "Let's register recv callback here\n",
+           conn->ip, conn->port);
     rdmaConnSetRecvCallback(conn, connRecvSuccess);
-    printf("rdmaConnSetRecvCallback success\n");
+    rdmaConnSetConnectedCallback(conn, connConnectSuccess);
+    rdmaConnSetDisconnectCallback(conn, connDisconnectSuccess);
 }
 
 int main(int argc, char *argv[])

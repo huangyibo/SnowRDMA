@@ -579,8 +579,8 @@ pollcq:
     {
         if (wc[i].status != IBV_WC_SUCCESS)
         {
-            rdmaWarn("(Ignored) RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
-                     ibv_wc_status_str(wc[i].status), wc[i].status, wc[i].opcode);
+            rdmaErr("(Ignored) RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
+                    ibv_wc_status_str(wc[i].status), wc[i].status, wc[i].opcode);
             goto out;
         }
 
@@ -1226,6 +1226,10 @@ int rdmaOnConnected(struct rdma_cm_event *ev, void *poll_ctx)
     else if (conn->type == CONNECTED_CONN)
     {
         /* ConnectCallback for client side */
+        if (conn->connected_callback)
+        {
+            conn->connected_callback(conn);
+        }
     }
 
     return RDMA_OK;
@@ -1237,6 +1241,11 @@ int rdmaOnDisconnected(struct rdma_cm_event *ev)
     RdmaConn *conn = id->context;
 
     conn->state = CONN_STATE_CLOSED;
+    /* call Disconnect Callback before release */
+    if (conn->disconnect_callback)
+    {
+        conn->disconnect_callback(conn);
+    }
     rdmaConnRelease(conn);
 
     return RDMA_OK;
@@ -1397,6 +1406,14 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt)
         {
             rdmaConnSetRecvCallback(conn, opt->recv_callback);
         }
+        if (opt->connected_callback)
+        {
+            rdmaConnSetConnectedCallback(conn, opt->connected_callback);
+        }
+        if (opt->disconnect_callback)
+        {
+            rdmaConnSetDisconnectCallback(conn, opt->disconnect_callback);
+        }
         rdmaSetGlobalEnv(opt);
     }
 
@@ -1505,6 +1522,26 @@ int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func)
         return RDMA_OK;
 
     conn->recv_callback = func;
+
+    return RDMA_OK;
+}
+
+int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func)
+{
+    if (func == conn->connected_callback)
+        return RDMA_OK;
+
+    conn->connected_callback = func;
+
+    return RDMA_OK;
+}
+
+int rdmaConnSetDisconnectCallback(RdmaConn *conn, RdmaDisconnectCallbackFunc func)
+{
+    if (func == conn->disconnect_callback)
+        return RDMA_OK;
+
+    conn->disconnect_callback = func;
 
     return RDMA_OK;
 }
