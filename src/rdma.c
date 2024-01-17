@@ -26,6 +26,8 @@
 #define unlikely(x) (x)
 #endif
 
+#define MIN(a, b) (a) < (b) ? a : b
+
 /* RDMA Flags environment variables */
 int rdmaListenBacklog = 128;
 int rdmaTimeoutms = 1000;
@@ -498,7 +500,7 @@ int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
         rdmaAdjustSendbuf(conn, conn->tx_length);
 
         /* notify the waiting side once connected */
-        conn->state = CONN_STATE_MR_READY;
+        conn->state = RDMA_CONN_STATE_MR_READY;
         if (conn->type == CONNECTED_CONN)
         {
             pthread_mutex_lock(&conn->status_mutex);
@@ -625,7 +627,7 @@ pollcq:
             if (rdmaConnHandleRecvImm(conn, conn->cm_id, cmd, wr_ctx, &wc[i], wc[i].byte_len) == RDMA_ERR)
             {
                 rdmaErr("RDMA: rdma connection handle Recv Imm error");
-                conn->state = CONN_STATE_ERROR;
+                conn->state = RDMA_CONN_STATE_ERROR;
                 goto out;
             }
 
@@ -1055,7 +1057,7 @@ int rdmaOnConnectRequest(struct rdma_cm_event *ev)
 
     conn->ip = strdup(cip);
     conn->port = cport;
-    conn->state = CONN_STATE_ACCEPTING;
+    conn->state = RDMA_CONN_STATE_ACCEPTING;
     conn->type = ACCEPTED_CONN;
     conn->send_length = 0;
     conn->recv_length = 0;
@@ -1166,7 +1168,7 @@ int rdmaSendCommand(RdmaConn *conn, struct rdma_cm_id *id, RdmaCmd *cmd, void *t
     if (ret)
     {
         rdmaWarn("RDMA: post send RDMA cmd failed %d", ret);
-        conn->state = CONN_STATE_ERROR;
+        conn->state = RDMA_CONN_STATE_ERROR;
         return RDMA_ERR;
     }
 
@@ -1249,7 +1251,7 @@ int rdmaOnConnected(struct rdma_cm_event *ev, void *poll_ctx)
 
     connRdmaSyncPhysRxMr(conn, id);
     connRdmaSyncRxMr(conn, id);
-    conn->state = CONN_STATE_CONNECTED;
+    conn->state = RDMA_CONN_STATE_CONNECTED;
 
     if (conn->type == ACCEPTED_CONN && poll_ctx)
     {
@@ -1276,7 +1278,7 @@ int rdmaOnDisconnected(struct rdma_cm_event *ev)
     struct rdma_cm_id *id = ev->id;
     RdmaConn *conn = id->context;
 
-    conn->state = CONN_STATE_CLOSED;
+    conn->state = RDMA_CONN_STATE_CLOSED;
     /* call Disconnect Callback before release */
     if (conn->disconnect_callback)
     {
@@ -1295,7 +1297,7 @@ int rdmaOnRejected(struct rdma_cm_event *ev)
     struct rdma_cm_id *id = ev->id;
     RdmaConn *conn = id->context;
 
-    conn->state = CONN_STATE_ERROR;
+    conn->state = RDMA_CONN_STATE_ERROR;
 
     return RDMA_OK;
 }
@@ -1456,7 +1458,7 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt)
         rdmaSetGlobalEnv(opt);
     }
 
-    conn->state = CONN_STATE_NONE;
+    conn->state = RDMA_CONN_STATE_NONE;
     conn->type = CONNECTED_CONN;
     conn->cm_channel = g_cm_channel;
     conn->send_length = 0;
@@ -1521,7 +1523,7 @@ int rdmaConnect(RdmaConn *conn, char *serverip, int port)
     /* resolve addr at most 1000ms */
     conn->ip = strdup(serverip);
     conn->port = port;
-    conn->state = CONN_STATE_CONNECTING;
+    conn->state = RDMA_CONN_STATE_CONNECTING;
     if (rdma_resolve_addr(conn->cm_id, NULL,
                           (struct sockaddr *)&saddr, rdmaTimeoutms))
     {
@@ -1599,7 +1601,7 @@ size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len)
     int ret;
     uint32_t tosend;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1657,7 +1659,7 @@ size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len)
     int ret;
     uint32_t tosend;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1715,7 +1717,7 @@ int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
     struct ibv_wc wc = {0};
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1743,7 +1745,7 @@ int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
     struct ibv_wc wc = {0};
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1769,7 +1771,7 @@ int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
     struct rdma_cm_id *id = conn->cm_id;
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1792,7 +1794,7 @@ int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
     struct rdma_cm_id *id = conn->cm_id;
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1816,7 +1818,7 @@ int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
     struct ibv_wc wc = {0};
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }
@@ -1843,7 +1845,7 @@ int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
     struct ibv_wc wc = {0};
     int ret;
 
-    if (conn->state == CONN_STATE_ERROR || conn->state == CONN_STATE_CLOSED)
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
     {
         return RDMA_ERR;
     }

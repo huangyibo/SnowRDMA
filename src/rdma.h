@@ -33,7 +33,6 @@ typedef struct RdmaCmd
     uint32_t key;
 } RdmaCmd;
 
-#define MIN(a, b) (a) < (b) ? a : b
 #define RDMA_MAX_SGE 1024
 #define RDMA_DEFAULT_RX_LEN (1024 * 1024)
 #define RDMA_CMD_MAGIC 'R'
@@ -145,14 +144,14 @@ typedef RdmaOptions RdmaConnOptions;
 
 typedef enum
 {
-    CONN_STATE_NONE = 0,
-    CONN_STATE_CONNECTING,
-    CONN_STATE_ACCEPTING,
-    CONN_STATE_CONNECTED,
-    CONN_STATE_MR_READY,
-    CONN_STATE_CLOSED,
-    CONN_STATE_ERROR,
-} ConnectionState;
+    RDMA_CONN_STATE_NONE = 0,
+    RDMA_CONN_STATE_CONNECTING,
+    RDMA_CONN_STATE_ACCEPTING,
+    RDMA_CONN_STATE_CONNECTED,
+    RDMA_CONN_STATE_MR_READY,
+    RDMA_CONN_STATE_CLOSED,
+    RDMA_CONN_STATE_ERROR,
+} RdmaConnState;
 
 typedef enum
 {
@@ -179,7 +178,7 @@ struct RdmaConn
 {
     struct rdma_cm_id *cm_id;
     int last_errno;
-    ConnectionState state;
+    RdmaConnState state;
     ConnectionType type;
 
     char *ip;
