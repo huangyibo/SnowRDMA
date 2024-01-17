@@ -7,6 +7,11 @@ int port = 8888;
 
 char *hello_msg = "Hello World!";
 
+void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
+{
+    printf("RDMA: recv data from peer: %s\n", (char *)data);
+}
+
 int main(int argc, char *argv[])
 {
     RdmaConn *conn;
@@ -14,12 +19,14 @@ int main(int argc, char *argv[])
     int ret = RDMA_ERR;
 
     opt.rdma_recv_depth = 32;
+    opt.recv_callback = clientRecvSuccess;
     conn = rdmaConn(&opt);
     if (!conn)
     {
         rdmaErr("create rdma connection failed");
         goto end;
     }
+    // rdmaConnSetRecvCallback(conn, clientRecvSuccess);
 
     ret = rdmaConnect(conn, serverip, port);
     if (ret != RDMA_OK)
@@ -29,13 +36,12 @@ int main(int argc, char *argv[])
     }
 
     ret = rdmaConnSend(conn, hello_msg, strlen(hello_msg));
-    printf("rdmaConnSend: ret = %d\n", ret);
+    printf("rdmaConnSend success %d bytes\n", ret);
     if (ret != strlen(hello_msg))
     {
         rdmaErr("rdma send msg failed");
         goto end;
     }
-
     ret = RDMA_OK;
 
 end:
