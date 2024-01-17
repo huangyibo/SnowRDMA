@@ -19,6 +19,7 @@ typedef enum RdmaCmdType
 {
     REG_LOCAL_ADDR, /* register local addr */
     REG_PHYS_ADDR,  /* register physical mem */
+    CONN_GOODBYE,       /* disconnect cmd between server and client */
 } RdmaCmdType;
 
 typedef struct RdmaCmd

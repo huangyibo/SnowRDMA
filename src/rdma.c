@@ -90,6 +90,7 @@ static int rdmaOnRejected(struct rdma_cm_event *ev);
 
 static int connRdmaSyncRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id);
 static int connRdmaSyncPhysRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id);
+static int connRdmaSayBye(RdmaConn *conn, struct rdma_cm_id *cm_id);
 
 // static int rdmaRegSendbuf(RdmaConn *conn, unsigned int length);
 static int rdmaSendCommand(RdmaConn *conn, struct rdma_cm_id *id, RdmaCmd *cmd, void *tx_ctx);
@@ -513,6 +514,12 @@ int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
         conn->tx_pa_offset = 0;
         break;
 
+    case CONN_GOODBYE:
+        rdmaInfo("RDMA: disconnect with host %s:%d", conn->ip, conn->port);
+        // rdma_disconnect(cm_id);
+
+        break;
+
     default:
         rdmaErr("RDMA: FATAL error, unknown RDMA cmd");
         return RDMA_ERR;
@@ -525,6 +532,17 @@ int rdmaConnHandleSend(RdmaConn *conn, RdmaCmd *cmd)
 {
     /* mark this RDMA cmd has already sent */
     cmd->magic = 0;
+
+    switch (cmd->cmd_opcode)
+    {
+    case CONN_GOODBYE:
+        /* start disconnect once the CONN_GOODBYE msg arrives at peer host. */
+        rdma_disconnect(conn->cm_id);
+        break;
+
+    default:
+        break;
+    }
 
     return RDMA_OK;
 }
@@ -579,9 +597,10 @@ pollcq:
     {
         if (wc[i].status != IBV_WC_SUCCESS)
         {
-            rdmaErr("(Ignored) RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
-                    ibv_wc_status_str(wc[i].status), wc[i].status, wc[i].opcode);
-            goto out;
+            rdmaDebug("(Ignored) RDMA: CQ handle error status: %s[0x%x], opcode : 0x%x",
+                      ibv_wc_status_str(wc[i].status), wc[i].status, wc[i].opcode);
+            // goto out;
+            continue;
         }
 
         switch (wc[i].opcode)
@@ -1206,6 +1225,23 @@ int connRdmaSyncPhysRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id)
     return rdmaSendCommand(conn, cm_id, cmd, tx_ctx);
 }
 
+int connRdmaSayBye(RdmaConn *conn, struct rdma_cm_id *cm_id)
+{
+    RdmaCmd *cmd;
+    RdmaWrCtx *tx_ctx;
+
+    cmd = rdmaAllocCmdBuf(conn, &tx_ctx);
+
+    cmd->cmd_opcode = CONN_GOODBYE;
+    cmd->magic = RDMA_CMD_MAGIC;
+
+    tx_ctx->type = SEND_CONTEXT;
+    tx_ctx->rdma_conn = (void *)conn;
+    tx_ctx->private_data = (void *)cmd;
+
+    return rdmaSendCommand(conn, cm_id, cmd, tx_ctx);
+}
+
 int rdmaOnConnected(struct rdma_cm_event *ev, void *poll_ctx)
 {
     struct rdma_cm_id *id = ev->id;
@@ -1246,6 +1282,9 @@ int rdmaOnDisconnected(struct rdma_cm_event *ev)
     {
         conn->disconnect_callback(conn);
     }
+    pthread_mutex_lock(&conn->status_mutex);
+    pthread_cond_broadcast(&conn->status_cond); /* signal waiting threads */
+    pthread_mutex_unlock(&conn->status_mutex);
     rdmaConnRelease(conn);
 
     return RDMA_OK;
@@ -1513,7 +1552,11 @@ void rdmaConnClose(RdmaConn *conn)
     if (!cm_id)
         return;
 
-    rdma_disconnect(cm_id);
+    // rdma_disconnect(cm_id);
+    connRdmaSayBye(conn, cm_id);
+    pthread_mutex_lock(&conn->status_mutex);
+    pthread_cond_wait(&conn->status_cond, &conn->status_mutex);
+    pthread_mutex_unlock(&conn->status_mutex);
 }
 
 int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func)
