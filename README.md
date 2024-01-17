@@ -26,6 +26,11 @@ interfaces:
 
   /* release global RDMA server context */
   void rdmaServerRelease(RdmaListener *listener);
+
+  /* set AcceptCallback for RDMA server */
+  typedef void (*RdmaAcceptCallbackFunc)(RdmaConn *conn);
+  int rdmaServerSetAcceptCallback(RdmaListener *listener, RdmaAcceptCallbackFunc func);
+
 ```
 
 (2) client side control interfaces:
@@ -41,6 +46,10 @@ interfaces:
 
   /* explicitly stop background rdma runtime */
   void rdmaRuntimeStop(void);
+
+  /* set RecvCallback for each RDMA connection */
+  typedef void (*RdmaRecvCallbackFunc)(RdmaConn *conn, void *data, size_t data_len);
+  int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func);
 ```
 
 (3) data plane interfaces: RDMA signaled by default
