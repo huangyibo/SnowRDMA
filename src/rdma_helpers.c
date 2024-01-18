@@ -2,8 +2,14 @@
 
 struct ibv_mr *rdma_exp_reg_phys_mem_range(struct ibv_pd *pd, void *buf, size_t size)
 {
-    return ibv_reg_mr(pd, buf, size,
-                      IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ);
+    struct ibv_exp_reg_mr_in in = {0};
+    in.pd = pd;
+    in.addr = buf;
+    in.length = size;
+    in.exp_access = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ |
+                    IBV_ACCESS_REMOTE_ATOMIC | IBV_ACCESS_LOCAL_WRITE |
+                    IBV_EXP_ACCESS_PHYSICAL_ADDR;
+    return ibv_exp_reg_mr(&in);
 }
 
 struct ibv_mr *rdma_exp_reg_phys_mem_full(struct ibv_pd *pd)
