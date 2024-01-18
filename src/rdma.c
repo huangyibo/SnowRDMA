@@ -168,6 +168,41 @@ static inline void rdmaSetGlobalEnv(const RdmaOptions *opt)
     rdmaEnablePhysAddrAccess = opt->rdma_enable_phys_addr_access;
 }
 
+static inline void rdmaConnSetEnv(RdmaConn *conn, const RdmaOptions *opt)
+{
+    if (!opt)
+        return;
+
+    if (opt->rdma_comm_mode == RDMA_BLOCKING)
+    {
+        conn->options.rdma_qp2cq_mode = ONE_TO_ONE;
+    }
+    if (opt->rdma_recv_depth > 0)
+    {
+        conn->options.rdma_recv_depth = opt->rdma_recv_depth;
+    }
+    if (opt->rdma_timeoutms > 0)
+    {
+        conn->options.rdma_timeoutms = opt->rdma_timeoutms;
+    }
+    if (opt->recv_callback)
+    {
+        rdmaConnSetRecvCallback(conn, opt->recv_callback);
+    }
+    if (opt->write_callback)
+    {
+        rdmaConnSetWriteCallback(conn, opt->write_callback);
+    }
+    if (opt->connected_callback)
+    {
+        rdmaConnSetConnectedCallback(conn, opt->connected_callback);
+    }
+    if (opt->disconnect_callback)
+    {
+        rdmaConnSetDisconnectCallback(conn, opt->disconnect_callback);
+    }
+}
+
 /* To make RDMA apps forkable, buffer which is registered as RDMA
  * memory region should be aligned to page size. And the length
  * also need to be aligned to page size.
@@ -635,6 +670,12 @@ pollcq:
 
         case IBV_WC_RDMA_WRITE:
             /* do nothing */
+            conn = (RdmaConn *)wc[i].wr_id;
+            if (conn && conn->write_callback)
+            {
+                conn->write_callback(conn, wc[i].byte_len);
+            }
+
             break;
 
         case IBV_WC_SEND:
@@ -1204,7 +1245,10 @@ int connRdmaSyncPhysRxMr(RdmaConn *conn, struct rdma_cm_id *cm_id)
     RdmaCmd *cmd;
     RdmaWrCtx *tx_ctx;
 
-    if (!rdmaEnablePhysAddrAccess || !g_ctx || !g_ctx->phys_mr)
+    if (!rdmaEnablePhysAddrAccess)
+        return RDMA_OK;
+
+    if (rdmaEnablePhysAddrAccess && (!g_ctx || !g_ctx->phys_mr))
     {
         rdmaDebug("You should enable Physical Memory Access over RDMA before use. \n"
                   "Note that you need to enable RDMA Physical Address Memory Region"
@@ -1431,30 +1475,7 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt)
     rdmaSetDefaultOptions(&conn->options);
     if (opt)
     {
-        if (opt->rdma_comm_mode == RDMA_BLOCKING)
-        {
-            conn->options.rdma_qp2cq_mode = ONE_TO_ONE;
-        }
-        if (opt->rdma_recv_depth > 0)
-        {
-            conn->options.rdma_recv_depth = opt->rdma_recv_depth;
-        }
-        if (opt->rdma_timeoutms > 0)
-        {
-            conn->options.rdma_timeoutms = opt->rdma_timeoutms;
-        }
-        if (opt->recv_callback)
-        {
-            rdmaConnSetRecvCallback(conn, opt->recv_callback);
-        }
-        if (opt->connected_callback)
-        {
-            rdmaConnSetConnectedCallback(conn, opt->connected_callback);
-        }
-        if (opt->disconnect_callback)
-        {
-            rdmaConnSetDisconnectCallback(conn, opt->disconnect_callback);
-        }
+        rdmaConnSetEnv(conn, opt);
         rdmaSetGlobalEnv(opt);
     }
 
@@ -1571,6 +1592,16 @@ int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func)
     return RDMA_OK;
 }
 
+int rdmaConnSetWriteCallback(RdmaConn *conn, RdmaWriteCallbackFunc func)
+{
+    if (func == conn->write_callback)
+        return RDMA_OK;
+
+    conn->write_callback = func;
+
+    return RDMA_OK;
+}
+
 int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func)
 {
     if (func == conn->connected_callback)
@@ -1616,7 +1647,7 @@ size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len)
 
     memcpy(addr, data, data_len);
 
-    if ((++conn->send_ops % (RDMA_MAX_SGE / 2)) != 0)
+    if (!conn->write_callback && (++conn->send_ops % (RDMA_MAX_SGE / 2)) != 0)
     {
         ret = rdma_write_with_imm(cm_id->qp, (uint64_t)conn, htonl(conn->tx_offset),
                                   (uint64_t)addr, conn->send_mr->lkey,
@@ -1673,7 +1704,7 @@ size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len)
 
     memcpy(addr, data, data_len);
 
-    if ((++conn->send_ops % (RDMA_MAX_SGE / 2)) != 0)
+    if (!conn->write_callback && (++conn->send_ops % (RDMA_MAX_SGE / 2)) != 0)
     {
         ret = rdma_write(cm_id->qp, (uint64_t)conn,
                          (uint64_t)addr, conn->send_mr->lkey,

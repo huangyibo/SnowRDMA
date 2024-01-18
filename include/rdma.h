@@ -11,6 +11,8 @@ typedef struct RdmaConn RdmaConn;
 
 /* callback funcs for RDMA connection level in Async communication (Non-Blocking) */
 typedef void (*RdmaRecvCallbackFunc)(RdmaConn *conn, void *data, size_t data_len);
+typedef void (*RdmaWriteCallbackFunc)(RdmaConn *conn, size_t byte_len);
+
 typedef void (*RdmaConnectedCallbackFunc)(RdmaConn *conn);
 typedef void (*RdmaDisconnectCallbackFunc)(RdmaConn *conn);
 typedef void (*RdmaAcceptCallbackFunc)(RdmaConn *conn);
@@ -134,6 +136,7 @@ typedef struct RdmaOptions
     bool rdma_enable_phys_addr_access;
 
     RdmaRecvCallbackFunc recv_callback;
+    RdmaWriteCallbackFunc write_callback;   /* for RDMA_WRITE */
     RdmaConnectedCallbackFunc connected_callback;
     RdmaDisconnectCallbackFunc disconnect_callback;
     RdmaAcceptCallbackFunc accept_callback;
@@ -230,6 +233,7 @@ struct RdmaConn
 
     /* callbacks for control and data plane */
     RdmaRecvCallbackFunc recv_callback;
+    RdmaWriteCallbackFunc write_callback;
     RdmaConnectedCallbackFunc connected_callback;
     RdmaDisconnectCallbackFunc disconnect_callback;
 };
@@ -259,6 +263,7 @@ RdmaConn *rdmaConn(const RdmaServerOptions *opt);
 int rdmaConnect(RdmaConn *conn, char *serverip, int port);
 void rdmaConnClose(RdmaConn *conn);
 int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func);
+int rdmaConnSetWriteCallback(RdmaConn *conn, RdmaWriteCallbackFunc func);
 int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func);
 int rdmaConnSetDisconnectCallback(RdmaConn *conn, RdmaDisconnectCallbackFunc func);
 
