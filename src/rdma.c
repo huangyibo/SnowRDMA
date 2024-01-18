@@ -193,6 +193,10 @@ static inline void rdmaConnSetEnv(RdmaConn *conn, const RdmaOptions *opt)
     {
         rdmaConnSetWriteCallback(conn, opt->write_callback);
     }
+    if (opt->read_callback)
+    {
+        rdmaConnSetReadCallback(conn, opt->read_callback);
+    }
     if (opt->connected_callback)
     {
         rdmaConnSetConnectedCallback(conn, opt->connected_callback);
@@ -516,6 +520,26 @@ void rdmaRuntimeStop()
         rdma_destroy_event_channel(g_cm_channel);
 }
 
+struct ibv_mr *rdmaConnRegMem(RdmaConn *conn, size_t size)
+{
+    void *buf;
+
+    buf = malloc(size);
+    if (!buf)
+        return NULL;
+    memset(buf, 0, size);
+
+    return rdma_reg_mem(conn->pd, buf, size);
+}
+
+void rdmaConnDeregMem(RdmaConn *conn, struct ibv_mr *mr)
+{
+    void *buf = mr->addr;
+    rdma_dereg_mem(mr);
+    free(buf);
+    buf = NULL;
+}
+
 int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
                        RdmaCmd *cmd, RdmaWrCtx *wr_ctx, uint32_t byte_len)
 {
@@ -669,11 +693,19 @@ pollcq:
             break;
 
         case IBV_WC_RDMA_WRITE:
-            /* do nothing */
             conn = (RdmaConn *)wc[i].wr_id;
             if (conn && conn->write_callback)
             {
                 conn->write_callback(conn, wc[i].byte_len);
+            }
+
+            break;
+
+        case IBV_WC_RDMA_READ:
+            conn = (RdmaConn *)wc[i].wr_id;
+            if (conn && conn->read_callback)
+            {
+                conn->read_callback(conn, wc[i].byte_len);
             }
 
             break;
@@ -1602,6 +1634,16 @@ int rdmaConnSetWriteCallback(RdmaConn *conn, RdmaWriteCallbackFunc func)
     return RDMA_OK;
 }
 
+int rdmaConnSetReadCallback(RdmaConn *conn, RdmaReadCallbackFunc func)
+{
+    if (func == conn->read_callback)
+        return RDMA_OK;
+
+    conn->read_callback = func;
+
+    return RDMA_OK;
+}
+
 int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func)
 {
     if (func == conn->connected_callback)
@@ -1735,9 +1777,26 @@ int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
     return RDMA_OK;
 }
 
-int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len)
+int rdmaConnRead(RdmaConn *conn, void *local_buf, uint32_t lkey,
+                 void *remote_buf, uint32_t rkey, size_t length)
 {
-    return RDMA_OK;
+    struct rdma_cm_id *cm_id = conn->cm_id;
+    int ret;
+
+    if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
+    {
+        return RDMA_ERR;
+    }
+
+    ret = rdma_read_signaled(cm_id->qp, (uint64_t)conn, (uint64_t)local_buf, lkey,
+                             (uint64_t)remote_buf, rkey, length, conn->max_inline_data);
+    if (ret)
+    {
+        rdmaErr("RDMA: post send failed for RDMA READ : %s", strerror(errno));
+        return RDMA_ERR;
+    }
+
+    return length;
 }
 
 int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,

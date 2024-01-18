@@ -12,6 +12,7 @@ typedef struct RdmaConn RdmaConn;
 /* callback funcs for RDMA connection level in Async communication (Non-Blocking) */
 typedef void (*RdmaRecvCallbackFunc)(RdmaConn *conn, void *data, size_t data_len);
 typedef void (*RdmaWriteCallbackFunc)(RdmaConn *conn, size_t byte_len);
+typedef void (*RdmaReadCallbackFunc)(RdmaConn *conn, size_t byte_len);
 
 typedef void (*RdmaConnectedCallbackFunc)(RdmaConn *conn);
 typedef void (*RdmaDisconnectCallbackFunc)(RdmaConn *conn);
@@ -21,7 +22,7 @@ typedef enum RdmaCmdType
 {
     REG_LOCAL_ADDR, /* register local addr */
     REG_PHYS_ADDR,  /* register physical mem */
-    CONN_GOODBYE,       /* disconnect cmd between server and client */
+    CONN_GOODBYE,   /* disconnect cmd between server and client */
 } RdmaCmdType;
 
 typedef struct RdmaCmd
@@ -136,7 +137,8 @@ typedef struct RdmaOptions
     bool rdma_enable_phys_addr_access;
 
     RdmaRecvCallbackFunc recv_callback;
-    RdmaWriteCallbackFunc write_callback;   /* for RDMA_WRITE */
+    RdmaWriteCallbackFunc write_callback; /* for RDMA_WRITE */
+    RdmaReadCallbackFunc read_callback;   /* for RDMA_READ */
     RdmaConnectedCallbackFunc connected_callback;
     RdmaDisconnectCallbackFunc disconnect_callback;
     RdmaAcceptCallbackFunc accept_callback;
@@ -234,6 +236,7 @@ struct RdmaConn
     /* callbacks for control and data plane */
     RdmaRecvCallbackFunc recv_callback;
     RdmaWriteCallbackFunc write_callback;
+    RdmaReadCallbackFunc read_callback;
     RdmaConnectedCallbackFunc connected_callback;
     RdmaDisconnectCallbackFunc disconnect_callback;
 };
@@ -264,10 +267,15 @@ int rdmaConnect(RdmaConn *conn, char *serverip, int port);
 void rdmaConnClose(RdmaConn *conn);
 int rdmaConnSetRecvCallback(RdmaConn *conn, RdmaRecvCallbackFunc func);
 int rdmaConnSetWriteCallback(RdmaConn *conn, RdmaWriteCallbackFunc func);
+int rdmaConnSetReadCallback(RdmaConn *conn, RdmaReadCallbackFunc func);
 int rdmaConnSetConnectedCallback(RdmaConn *conn, RdmaConnectedCallbackFunc func);
 int rdmaConnSetDisconnectCallback(RdmaConn *conn, RdmaDisconnectCallbackFunc func);
 
 void rdmaRuntimeStop(void);
+
+/* MR related management interfaces */
+struct ibv_mr *rdmaConnRegMem(RdmaConn *conn, size_t size);
+void rdmaConnDeregMem(RdmaConn *conn, struct ibv_mr *mr);
 
 /* data plane interfaces. Signaled by default. */
 size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len);
@@ -275,7 +283,13 @@ size_t rdmaConnSend(RdmaConn *conn, void *data, size_t data_len);
 size_t rdmaConnWrite(RdmaConn *conn, const void *data, size_t data_len);
 int rdmaConnWriteWithImm(RdmaConn *conn, uint32_t imm_data,
                          const void *data, size_t data_len);
-int rdmaConnRead(RdmaConn *conn, void *data_buf, size_t buf_len);
+
+/* This uses RDMA READ verb. Assume that local buf and remote buf are all registered by RDMA.
+ * Current connection needs to know and exchange remote buf and rkey (REMOTE_RDMA_READ allowed)
+ *  before invocation.
+ */
+int rdmaConnRead(RdmaConn *conn, void *local_buf, uint32_t lkey,
+                 void *remote_buf, uint32_t rkey, size_t length);
 
 /* RDMA blocking interfaces that require RDMA_BLOCKING mode.
  * Assume that remote addr is RDMA-registered before use.
