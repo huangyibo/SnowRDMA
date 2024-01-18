@@ -6,6 +6,8 @@ char *serverip = "192.168.1.9";
 int port = 8888;
 
 char *hello_msg = "Hello World!";
+char *local_msg_buf;
+struct ibv_mr *data_mr;
 
 void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
 {
@@ -15,6 +17,17 @@ void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
 void clientWriteSuccess(RdmaConn *conn, size_t data_len)
 {
     printf("RDMA WRITE to peer (%s:%d) success\n", conn->ip, conn->port);
+}
+
+void clientReadSuccess(RdmaConn *conn, size_t data_len)
+{
+    printf("RDMA READ from peer (%s:%d): %s\n", conn->ip, conn->port, local_msg_buf);
+    if (local_msg_buf && data_mr)
+    {
+        printf("RDMA conn de-register data mr\n");
+        rdmaConnDeregMem(conn, data_mr);
+        local_msg_buf = NULL;
+    }
 }
 
 void clientConnectSuccess(RdmaConn *conn)
@@ -36,6 +49,7 @@ int main(int argc, char *argv[])
     opt.rdma_recv_depth = 32;
     opt.recv_callback = clientRecvSuccess;
     opt.write_callback = clientWriteSuccess;
+    opt.read_callback = clientReadSuccess;
     opt.connected_callback = clientConnectSuccess;
     opt.disconnect_callback = clientDisconnectSuccess;
     conn = rdmaConn(&opt);
@@ -62,6 +76,15 @@ int main(int argc, char *argv[])
     }
 
     rdmaConnWrite(conn, hello_msg, strlen(hello_msg));
+
+    data_mr = rdmaConnRegMem(conn, strlen(hello_msg) + 1);
+    if (!data_mr)
+    {
+        rdmaErr("rdma register memory failed");
+        goto end;
+    }
+    local_msg_buf = (char *)data_mr->addr;
+    rdmaConnRead(conn, local_msg_buf, data_mr->lkey, conn->tx_addr, conn->tx_key, strlen(hello_msg));
 
     ret = RDMA_OK;
 
