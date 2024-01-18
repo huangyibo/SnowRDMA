@@ -12,6 +12,11 @@ void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
     printf("RDMA: recv data from peer (%s:%d): %s\n", conn->ip, conn->port, (char *)data);
 }
 
+void clientWriteSuccess(RdmaConn *conn, size_t data_len)
+{
+    printf("RDMA WRITE to peer (%s:%d) success\n", conn->ip, conn->port);
+}
+
 void clientConnectSuccess(RdmaConn *conn)
 {
     printf("RDMA: one connection (%s:%d) connect success to server\n", conn->ip, conn->port);
@@ -30,6 +35,7 @@ int main(int argc, char *argv[])
 
     opt.rdma_recv_depth = 32;
     opt.recv_callback = clientRecvSuccess;
+    opt.write_callback = clientWriteSuccess;
     opt.connected_callback = clientConnectSuccess;
     opt.disconnect_callback = clientDisconnectSuccess;
     conn = rdmaConn(&opt);
@@ -54,6 +60,9 @@ int main(int argc, char *argv[])
         rdmaErr("rdma send msg failed");
         goto end;
     }
+
+    rdmaConnWrite(conn, hello_msg, strlen(hello_msg));
+
     ret = RDMA_OK;
 
 end:
