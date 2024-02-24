@@ -1812,7 +1812,7 @@ int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_write_signaled(id->qp, htonl(0), local_addr,
+    ret = rdma_write_signaled(id->qp, (uint64_t)conn, local_addr,
                               lkey, remote_addr, rkey,
                               length, conn->max_inline_data);
     if (ret)
@@ -1821,8 +1821,7 @@ int rdmaSyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    while (ibv_poll_cq(conn->cq, 1, &wc) == 0)
-        ;
+    while (ibv_poll_cq(conn->cq, 1, &wc) == 0);
 
     return length;
 }
@@ -1840,7 +1839,7 @@ int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_read_signaled(id->qp, htonl(0), local_addr, lkey,
+    ret = rdma_read_signaled(id->qp, (uint64_t)conn, local_addr, lkey,
                              remote_addr, rkey,
                              length, conn->max_inline_data);
     if (ret)
@@ -1849,8 +1848,7 @@ int rdmaSyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    while (ibv_poll_cq(conn->cq, 1, &wc) == 0)
-        ;
+    while (ibv_poll_cq(conn->cq, 1, &wc) == 0);
 
     return length;
 }
@@ -1866,7 +1864,7 @@ int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_write_signaled(id->qp, htonl(0), local_addr, lkey,
+    ret = rdma_write_signaled(id->qp, (uint64_t)conn, local_addr, lkey,
                               remote_addr, conn->tx_pa_rkey,
                               length, conn->max_inline_data);
     if (ret)
@@ -1881,7 +1879,7 @@ int rdmaPAWriteSignaled(RdmaConn *conn, uint64_t local_addr,
 int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
                        uint32_t lkey, uint64_t remote_addr, uint32_t length)
 {
-    struct rdma_cm_id *id = conn->cm_id;
+    struct rdma_cm_id *cm_id = conn->cm_id;
     int ret;
 
     if (conn->state == RDMA_CONN_STATE_ERROR || conn->state == RDMA_CONN_STATE_CLOSED)
@@ -1889,9 +1887,8 @@ int rdmaPAReadSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_read_signaled(id->qp, htonl(0), local_addr, lkey,
-                             remote_addr, conn->tx_pa_rkey,
-                             length, conn->max_inline_data);
+    ret = rdma_read_signaled(cm_id->qp, (uint64_t)conn, local_addr, lkey,
+                             remote_addr, conn->tx_pa_rkey, length, conn->max_inline_data);
     if (ret)
     {
         rdmaErr("RDMA: post send failed for RDMA READ : %s", strerror(errno));
@@ -1913,7 +1910,7 @@ int rdmaPASyncWriteSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_write_signaled(id->qp, htonl(0), local_addr, lkey,
+    ret = rdma_write_signaled(id->qp, (uint64_t)conn, local_addr, lkey,
                               remote_addr, conn->tx_pa_rkey,
                               length, conn->max_inline_data);
     if (ret)
@@ -1940,7 +1937,7 @@ int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    ret = rdma_read_signaled(id->qp, htonl(0), local_addr, lkey,
+    ret = rdma_read_signaled(id->qp, (uint64_t)conn, local_addr, lkey,
                              remote_addr, conn->tx_pa_rkey,
                              length, conn->max_inline_data);
     if (ret)
@@ -1949,8 +1946,7 @@ int rdmaPASyncReadSignaled(RdmaConn *conn, uint64_t local_addr,
         return RDMA_ERR;
     }
 
-    while (ibv_poll_cq(conn->cq, 1, &wc) == 0)
-        ;
+    while (ibv_poll_cq(conn->cq, 1, &wc) == 0);
 
     return length;
 }
