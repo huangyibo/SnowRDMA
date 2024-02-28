@@ -1,8 +1,14 @@
 #include <stdio.h>
 #include "rdma.h"
 
-char *serverip = "192.168.1.13";
+char *serverip;
 int port = 8888;
+
+static void usage(const char *argv0)
+{
+    fprintf(stderr, "usage: %s <RDMA-IP-address> <server-port>\n", argv0);
+    exit(1);
+}
 
 void connRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
 {
@@ -35,6 +41,12 @@ int main(int argc, char *argv[])
     RdmaListener *server;
     RdmaServerOptions opt = {0};
     int ret;
+
+    if (argc != 3)
+        usage(argv[0]);
+
+    serverip = argv[1];
+    port = atoi(argv[2]);
 
     opt.rdma_recv_depth = 512;
     opt.rdma_enable_phys_addr_access = true;

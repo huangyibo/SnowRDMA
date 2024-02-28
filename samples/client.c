@@ -2,12 +2,18 @@
 #include <unistd.h>
 #include "rdma.h"
 
-char *serverip = "192.168.1.13";
+char *serverip;
 int port = 8888;
 
 char *hello_msg = "hahahaahahaha!";
 char *local_msg_buf;
 struct ibv_mr *data_mr;
+
+static void usage(const char *argv0)
+{
+    fprintf(stderr, "usage: %s <RDMA-server-address> <server-port>\n", argv0);
+    exit(1);
+}
 
 void clientRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
 {
@@ -45,6 +51,12 @@ int main(int argc, char *argv[])
     RdmaConn *conn;
     RdmaConnOptions opt = {0};
     int ret = RDMA_ERR;
+
+    if (argc != 3)
+        usage(argv[0]);
+
+    serverip = argv[1];
+    port = atoi(argv[2]);
 
     opt.rdma_recv_depth = 32;
     opt.recv_callback = clientRecvSuccess;
