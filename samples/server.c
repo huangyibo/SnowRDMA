@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "rdma.h"
 
-char *serverip = "192.168.1.9";
+char *serverip = "192.168.1.13";
 int port = 8888;
 
 void connRecvSuccess(RdmaConn *conn, void *data, size_t data_len)
@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     int ret;
 
     opt.rdma_recv_depth = 512;
-    opt.rdma_enable_phys_addr_access = false;
+    opt.rdma_enable_phys_addr_access = true;
     opt.accept_callback = serverAcceptSuccess;
     ret = rdmaServer(&server, serverip, port, &opt);
     if (ret != RDMA_OK)

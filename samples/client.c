@@ -2,10 +2,10 @@
 #include <unistd.h>
 #include "rdma.h"
 
-char *serverip = "192.168.1.9";
+char *serverip = "192.168.1.13";
 int port = 8888;
 
-char *hello_msg = "Hello World!";
+char *hello_msg = "hahahaahahaha!";
 char *local_msg_buf;
 struct ibv_mr *data_mr;
 
@@ -84,7 +84,15 @@ int main(int argc, char *argv[])
         goto end;
     }
     local_msg_buf = (char *)data_mr->addr;
-    rdmaConnRead(conn, local_msg_buf, data_mr->lkey, conn->tx_addr, conn->tx_key, strlen(hello_msg));
+    // rdmaConnRead(conn, local_msg_buf, data_mr->lkey, conn->tx_addr, conn->tx_key, strlen(hello_msg));
+
+    /* test PA MR */
+    unsigned long remote_addr = 0xff1ba1000;
+    #define TEST_MSG "Umich RBPF!"
+    // rdmaConnRead(conn, local_msg_buf, data_mr->lkey, (void *)remote_addr, conn->tx_pa_rkey, strlen(hello_msg));
+    memcpy((void *)local_msg_buf, TEST_MSG, strlen(TEST_MSG));
+    rdmaPAWriteSignaled(conn, (unsigned long)local_msg_buf, data_mr->lkey, remote_addr, strlen(hello_msg));
+    rdmaPAReadSignaled(conn, (unsigned long)local_msg_buf, data_mr->lkey, remote_addr, strlen(hello_msg));
 
     ret = RDMA_OK;
 
