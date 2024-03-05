@@ -38,6 +38,7 @@ int rdmaRetryCount = 7;
 int rdmaRnrRetryCount = 7;
 int rdmaMaxConcurrentWorkRequests = 128 + 2048 * 2; /* used to handle a batch of CQEs */
 int rdmaRecvDepth = RDMA_MAX_SGE;
+int rdmaMaxOutstandingRdAtomic = 0;
 
 int rdmaQp2CqMode = ONE_TO_ONE;
 int rdmaCommMode = RDMA_NON_BLOCKING;
@@ -102,6 +103,24 @@ static int rdmaConnHandleRecv(RdmaConn *conn, struct rdma_cm_id *cm_id,
                               RdmaCmd *cmd, RdmaWrCtx *wr_ctx, uint32_t byte_len);
 static int rdmaConnHandleSend(RdmaConn *conn, RdmaCmd *cmd);
 
+static int rdma_get_max_qp_rd_atom(struct ibv_context *ctx)
+{
+    int max_rd_atom = 0;
+    struct ibv_device_attr attr;
+    if (!ibv_query_device(ctx, &attr))
+    {
+        max_rd_atom = attr.max_qp_rd_atom;
+    }
+    rdmaInfo("max_qp_rd_atom: %d", max_rd_atom);
+    return max_rd_atom;
+}
+
+static inline void rdma_set_outstanding_rd_atomic(int max_rd_atomic)
+{
+    if (rdmaMaxOutstandingRdAtomic == 0 || rdmaMaxOutstandingRdAtomic > max_rd_atomic)
+        rdmaMaxOutstandingRdAtomic = max_rd_atomic;
+}
+
 static inline void rdmaSetDefaultOptions(RdmaOptions *dst_opt)
 {
     if (dst_opt)
@@ -117,6 +136,7 @@ static inline void rdmaSetDefaultOptions(RdmaOptions *dst_opt)
         dst_opt->rdma_qp2cq_mode = MANY_TO_ONE;
         dst_opt->rdma_comm_mode = RDMA_NON_BLOCKING;
         dst_opt->rdma_enable_phys_addr_access = false;
+        dst_opt->rdma_max_outstanding_rd_atomic = 0;
     }
 }
 
@@ -163,6 +183,11 @@ static inline void rdmaSetGlobalEnv(const RdmaOptions *opt)
     if (opt->rdma_recv_depth > 0)
     {
         rdmaRecvDepth = opt->rdma_recv_depth;
+    }
+
+    if (opt->rdma_max_outstanding_rd_atomic > 0)
+    {
+        rdmaMaxOutstandingRdAtomic = opt->rdma_max_outstanding_rd_atomic;
     }
 
     rdmaEnablePhysAddrAccess = opt->rdma_enable_phys_addr_access;
@@ -438,6 +463,7 @@ int rdmaContextInit(struct ibv_context *verbs)
     assert(g_ctx);
 
     g_ctx->ctx = verbs;
+    rdmaMaxOutstandingRdAtomic = rdma_get_max_qp_rd_atom(g_ctx->ctx);
 
     g_ctx->pd = ibv_alloc_pd(g_ctx->ctx);
     if (!g_ctx->pd)
@@ -793,6 +819,7 @@ void *rdmaCompChannelStart(void *ctx_ptr)
 int rdmaConnCreate(struct rdma_cm_id *id, RdmaConn *conn)
 {
     struct ibv_qp_init_attr init_attr;
+    int max_rd_atom;
     int ret;
 
     ret = rdmaContextInit(id->verbs);
@@ -825,6 +852,10 @@ int rdmaConnCreate(struct rdma_cm_id *id, RdmaConn *conn)
         rdmaWarn("RDMA: create qp failed %d (%s)", errno, strerror(errno));
         goto reject;
     }
+
+    /* set max outstanding Reads and Atomics by modifying QP */
+    max_rd_atom = rdma_get_max_qp_rd_atom(g_ctx->ctx);
+    rdma_set_outstanding_rd_atomic(max_rd_atom);
 
     if (rdmaSetupIoBuf(conn, id) == RDMA_ERR)
     {
@@ -1145,6 +1176,8 @@ int rdmaOnConnectRequest(struct rdma_cm_event *ev)
         goto err;
     }
 
+    conn_param.initiator_depth = rdmaMaxOutstandingRdAtomic;
+    conn_param.responder_resources = rdmaMaxOutstandingRdAtomic;
     ret = rdma_accept(cmid, &conn_param);
     if (ret)
     {
@@ -1193,8 +1226,8 @@ int rdmaOnRouteResolved(struct rdma_cm_event *ev)
     }
 
     /* rdma connect with param */
-    conn_param.responder_resources = 1;
-    conn_param.initiator_depth = 1;
+    conn_param.responder_resources = rdmaMaxOutstandingRdAtomic;
+    conn_param.initiator_depth = rdmaMaxOutstandingRdAtomic;
     conn_param.retry_count = rdmaRetryCount;
     conn_param.rnr_retry_count = rdmaRnrRetryCount;
     if (rdma_connect(id, &conn_param))

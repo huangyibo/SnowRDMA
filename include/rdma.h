@@ -53,6 +53,13 @@ extern int rdmaRetryCount;
 extern int rdmaRnrRetryCount;
 extern int rdmaMaxConcurrentWorkRequests; /* used to handle a batch of CQEs */
 extern int rdmaRecvDepth;
+/* Number of outstanding RDMA Reads or Atomic reqs used by RDMA NIC.
+ * By default, set QP's max_rd_atomic as the RNIC's max_qp_rd_atom.
+ * Note that max_rd_atomic is a crucial QP attribute for performance,
+ * it is the number of RDMA Reads & atomic operations outstanding at
+ * any time that can be handled by a RC QP as an initiator.
+ */
+extern int rdmaMaxOutstandingRdAtomic;
 
 extern int rdmaQp2CqMode;             /* One QP to One CQ by default */
 extern int rdmaCommMode;              /* Blocking by default */
@@ -135,6 +142,11 @@ typedef struct RdmaOptions
      * Default: false
      */
     bool rdma_enable_phys_addr_access;
+
+    /** set the number of outstanding RDMA Read and Atomic operations handled by RDMA NIC.
+     * Default: RNIC's max_qp_rd_atom
+     */
+    int rdma_max_outstanding_rd_atomic;
 
     RdmaRecvCallbackFunc recv_callback;
     RdmaWriteCallbackFunc write_callback; /* for RDMA_WRITE */
