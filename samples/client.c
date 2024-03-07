@@ -100,6 +100,7 @@ int main(int argc, char *argv[])
     opt.read_callback = clientReadSuccess;
     opt.connected_callback = clientConnectSuccess;
     opt.disconnect_callback = clientDisconnectSuccess;
+    opt.rdma_io_affinity_cpuid = 2;
     conn = rdmaConn(&opt);
     if (!conn)
     {

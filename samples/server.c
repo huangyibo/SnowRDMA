@@ -51,6 +51,7 @@ int main(int argc, char *argv[])
     opt.rdma_recv_depth = 512;
     opt.rdma_enable_phys_addr_access = true;
     opt.accept_callback = serverAcceptSuccess;
+    opt.rdma_io_affinity_cpuid = 1;
     ret = rdmaServer(&server, serverip, port, &opt);
     if (ret != RDMA_OK)
     {
