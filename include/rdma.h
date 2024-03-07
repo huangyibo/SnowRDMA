@@ -64,6 +64,7 @@ extern int rdmaMaxOutstandingRdAtomic;
 extern int rdmaQp2CqMode;             /* One QP to One CQ by default */
 extern int rdmaCommMode;              /* Blocking by default */
 extern bool rdmaEnablePhysAddrAccess; /* disable by default */
+extern int rdmaIoAffinityCpuId;       /* -1 by default */
 
 typedef enum
 {
@@ -147,6 +148,11 @@ typedef struct RdmaOptions
      * Default: RNIC's max_qp_rd_atom
      */
     int rdma_max_outstanding_rd_atomic;
+
+    /** set pinned cpu id (better CPU affinity) for RDMA IO thread.
+     * Default: pin current CPU core if no pinned CPU id is specified
+     */
+    int rdma_io_affinity_cpuid;
 
     RdmaRecvCallbackFunc recv_callback;
     RdmaWriteCallbackFunc write_callback; /* for RDMA_WRITE */

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <assert.h>
 #include <arpa/inet.h>
 #include <signal.h>
@@ -43,6 +44,7 @@ int rdmaMaxOutstandingRdAtomic = 0;
 int rdmaQp2CqMode = ONE_TO_ONE;
 int rdmaCommMode = RDMA_NON_BLOCKING;
 bool rdmaEnablePhysAddrAccess = false;
+int rdmaIoAffinityCpuId = -1;
 
 /* a global RDMA context structure.
  * Note that all members in this context are globally shared.
@@ -111,7 +113,7 @@ static int rdma_get_max_qp_rd_atom(struct ibv_context *ctx)
     {
         max_rd_atom = attr.max_qp_rd_atom;
     }
-    rdmaInfo("max_qp_rd_atom: %d", max_rd_atom);
+    rdmaDebug("max_qp_rd_atom: %d", max_rd_atom);
     return max_rd_atom;
 }
 
@@ -188,6 +190,11 @@ static inline void rdmaSetGlobalEnv(const RdmaOptions *opt)
     if (opt->rdma_max_outstanding_rd_atomic > 0)
     {
         rdmaMaxOutstandingRdAtomic = opt->rdma_max_outstanding_rd_atomic;
+    }
+
+    if (opt->rdma_io_affinity_cpuid > 0)
+    {
+        rdmaIoAffinityCpuId = opt->rdma_io_affinity_cpuid;
     }
 
     rdmaEnablePhysAddrAccess = opt->rdma_enable_phys_addr_access;
@@ -782,6 +789,22 @@ void *rdmaCompChannelStart(void *ctx_ptr)
     {
         rdmaErr("RDMA: fcntl rdma completion channel fd failed status: %s", strerror(errno));
         return NULL;
+    }
+
+    /* set CPU affinity */
+    rdmaDebug("current CPU ID: %d", get_current_cpu());
+    if (rdmaIoAffinityCpuId == -1)
+    {
+        rdmaIoAffinityCpuId = get_current_cpu();
+    }
+    rdmaDebug("CPU affinity core: %d", rdmaIoAffinityCpuId);
+
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(rdmaIoAffinityCpuId, &mask);
+    ret = pthread_setaffinity_np(pthread_self() ,sizeof(mask),&mask);
+    if (ret != 0) {
+        rdmaWarn("failed to set affinity CPU %d for RDMA IO thread", rdmaIoAffinityCpuId);
     }
 
     while (!atomic_load(&c_should_stop))
