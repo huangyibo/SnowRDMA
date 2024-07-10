@@ -12,7 +12,7 @@ SnowRDMA provides user-friendly RDMA programming abstractions while
 preserving ultra-fast networking IO by integrating with advanced RDMA 
 hardware features. 
 
-The features supported by SnowRDMA include:
+**The features supported by SnowRDMA include:**
 
 - Callback based asynchronous programming model.
 - Support event and polling driven RDMA completion model.
@@ -30,7 +30,7 @@ The features supported by SnowRDMA include:
     By this, the throughput of RDMA Read is improved from ~0.9M requests per second (RPS)
     to ~4.9M RPS in a testbed with Mellanox CX4 NIC.
 
-Features that will be supported as next plans:
+**Features that will be supported as next plans:**
 
 - Multi-thread RDMA IO model.
 - Adaptive event/polling switching.
