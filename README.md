@@ -1,17 +1,67 @@
-# SnowRDMA
+# SnowRDMA -- An ultral-fast and easy-to-use RDMA library
+
+*Hope that you'd be glad to add a star if you think this repo is helpful!*
+
+## Overview
+
 A high-performance and easy-to-use RDMA library, called SnowRDMA. 
 I call it "SnowRDMA" because I completed its main development work during 
-a snow storm in Ann Arbor, MI. My wife Eva just suggests "SnowRDMA" to 
+a snowstorm in Ann Arbor, MI. My wife Eva just suggested "SnowRDMA" to 
 commemorate the first snow in 2024 we experienced together.
+SnowRDMA provides user-friendly RDMA programming abstractions while 
+preserving ultra-fast networking IO by integrating with advanced RDMA 
+hardware features. 
 
-## Introduction
+The features supported by SnowRDMA include:
+
+- Callback based asynchronous programming model.
+- Support event and polling driven RDMA completion model.
+- Support Remote Directly Physical Memory Access (PA-MR) feature.
+  - Note that this feature needs to be enabled in the MLNX_OFED driver
+    at boot time. Please refer to this google doc [PA MR in RDMA
+](https://docs.google.com/document/d/12bsFDSS3jV7WQ7OdfP2SEaooYVrPnhxDR8b_hpwQDgc/edit?usp=sharing).
+- Single-thread IO model.
+- Support CPU affinity setting.
+- Support to adjust the outstanding RDMA Read/Atomic handled by RDMA NIC.
+  - Use RDMA *max_rd_atomic* feature at a QP(Queue Pair) level, which
+    allows us to adjust the number of outstanding RDMA Read or Atomic operations
+    handled by RDMA NIC.
+  - Note that we set QP's *max_rd_atomic* as the RNIC's max_qp_rd_atom by default.
+    By this, the throughput of RDMA Read is improved from ~0.9M requests per second (RPS)
+    to ~4.9M RPS in a testbed with Mellanox CX4 NIC.
+
+Features that will be supported as next plans:
+
+- Multi-thread RDMA IO model.
+- Adaptive event/polling switching.
+- Support connection-level RDMA QoS feature.
+- Support enhanced atomic operations including:
+  - Masked Compare and Swap
+  - Masked Fetch and Add 
+- Support XRC--- [eXtended Reliable Connected Transport Service for InfiniBand](https://docs.nvidia.com/networking/display/mlnxofedv497100lts/advanced+transport)
+  - Significantly reduce QPs number and the associated memory resources required when
+    establishing all-to-all process connectivity in large clusters.
+- Support Dynamically Connected Transport (DCT)
+  - DCT connections only stay connected when they are active.
+  - Smaller memory footprint, less overhead to set connections, higher
+    on-chip cache utilization.
+  - Note that DCT is supported only in mlx5 driver.
+- Support resource domain for higher data-path performance.
+- Support User-Mode Memory Registration (UMR) for efficiently
+  scattering data through appropriate memory keys on the remote side.
+- ...
+
+
+
+
+## SnowRDMA Usage
 
 SnowRDMA provides easy-to-use RDMA programming interfaces for control
 and data plane operations while preserving high performance networking,
-so that a programmer without RDMA experience can easily take advantage
-of high performance benefits by RDMA (e.g., ultra-low latency, high
-throughput, and near-zero CPU utilization). This provides three types of
-interfaces:
+so that a developer without RDMA experience can easily take advantage
+of performance benefits by RDMA--- e.g., ultra-low latency at a 
+sub-microsecond level, high throughput(25Gbps~800Gbps), and near-zero 
+CPU utilization. This provides three types of interfaces:
 
 (1) server side control interfaces:
 ```c
