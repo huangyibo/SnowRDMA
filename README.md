@@ -35,22 +35,22 @@ hardware features.
 
 **Features that will be supported as next plans:**
 
-- Multi-thread RDMA IO model.
-- Adaptive event/polling switching.
-- Support connection-level RDMA QoS feature.
-- Support enhanced atomic operations including:
+- [ ] Multi-thread RDMA IO model.
+- [ ] Adaptive event/polling switching.
+- [ ] Support connection-level RDMA QoS feature.
+- [ ] Support enhanced atomic operations including:
   - Masked Compare and Swap
   - Masked Fetch and Add 
-- Support XRC--- [eXtended Reliable Connected Transport Service for InfiniBand](https://docs.nvidia.com/networking/display/mlnxofedv497100lts/advanced+transport)
+- [ ] Support XRC--- [eXtended Reliable Connected Transport Service for InfiniBand](https://docs.nvidia.com/networking/display/mlnxofedv497100lts/advanced+transport)
   - Significantly reduce QPs number and the associated memory resources required when
     establishing all-to-all process connectivity in large clusters.
-- Support Dynamically Connected Transport (DCT)
+- [ ] Support Dynamically Connected Transport (DCT)
   - DCT connections only stay connected when they are active.
   - Smaller memory footprint, less overhead to set connections, higher
     on-chip cache utilization.
   - Note that DCT is supported only in mlx5 driver.
-- Support resource domain for higher data-path performance.
-- Support User-Mode Memory Registration (UMR) for efficiently
+- [ ] Support resource domain for higher data-path performance.
+- [ ] Support User-Mode Memory Registration (UMR) for efficiently
   scattering data through appropriate memory keys on the remote side.
 - ...
 
